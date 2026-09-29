@@ -41,19 +41,21 @@ Development uses RevenueCat's **Test Store**, which simulates purchases in Expo 
 ## How it works
 
 ```
- Phone (Expo / React Native)                 Server (Node + Express)
- ───────────────────────────                 ───────────────────────
- camera / photos / PDF / Word  ── upload ──▶ 1. Claude reads the essay (vision for photos and
-                                                handwriting) and returns claims needing citation,
-                                                using structured output
-                                             2. Search OpenAlex + Crossref for each claim
-                                                (batched, with retry on rate limits)
-                                             3. Claude picks candidates that genuinely support
-                                                each claim and formats APA/MLA from real metadata
-                                             4. Pro only: claims without a strong match get a
-                                                Claude web search; a source is only accepted if
-                                                its URL appeared in the actual search results
- results, history, themes  ◀── JSON ────────
+ Phone (Expo / React Native)                   Server (Node + Express)
+ ───────────────────────────                   ───────────────────────
+ camera / photos / PDF / Word ─ POST /claims ─▶ Stage 1 (~10 s, cheap): Claude reads the essay
+                                                 (vision for photos and handwriting) and returns the
+                                                 claims needing citation, using structured output
+ review screen: user unticks  ◀──────────────
+ sentences they don't need
+ chosen sentences ──────────── POST /sources ─▶ Stage 2 (costly, only for chosen sentences):
+                                                 1. search OpenAlex + Crossref (batched, retried)
+                                                 2. Claude picks candidates that genuinely support
+                                                    each claim, formats APA/MLA from real metadata
+                                                 3. Pro only: claims without a strong match get a
+                                                    Claude web search; a source is only accepted if
+                                                    its URL appeared in the actual search results
+ results, history, themes     ◀── JSON ──────
 ```
 
 **Design decisions:**
@@ -61,6 +63,7 @@ Development uses RevenueCat's **Test Store**, which simulates purchases in Expo 
 - **No invented citations.** Large language models are known to make up references. CiteScan only suggests sources that came back from a real database or search result, and citations are formatted from that metadata. The model is told to return nothing rather than something misleading.
 - **The API key lives on the server.** Anything shipped inside an app binary can be extracted, so the phone never holds the Anthropic key.
 - **Resilient search.** The free scholarly indexes often rate-limit, so searches are batched and retried with backoff. In testing this took an essay from 2/4 to 4/4 sentences with sources, and web search covers statistics that academic databases don't index.
+- **Two stages so the user stays in control and costs stay down.** Finding sentences is quick and cheap; searching and matching sources is where most of the cost is. Users untick sentences they've already cited before stage 2, and an essay check is only used when they confirm.
 - **Model:** Claude Opus 5.5 with structured outputs, plus server-side refusal fallbacks.
 
 ## Tech stack

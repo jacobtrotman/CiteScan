@@ -68,12 +68,6 @@ export interface AnalyzedClaim {
   suggestions: Suggestion[];
 }
 
-export interface AnalysisResult {
-  title: string;
-  claims: AnalyzedClaim[];
-  advanced: boolean;
-}
-
 export class AnalysisError extends Error {}
 
 function documentBlocks(input: DocumentInput): Anthropic.Beta.BetaContentBlockParam[] {
@@ -118,7 +112,7 @@ async function extractClaims(input: DocumentInput) {
 }
 
 async function matchSources(
-  claims: z.infer<typeof ClaimsSchema>["claims"],
+  claims: Claim[],
   candidates: Source[][],
 ): Promise<z.infer<typeof MatchSchema>["matches"]> {
   const payload = claims.map((c, i) => ({
@@ -155,25 +149,46 @@ async function matchSources(
   return response.parsed_output.matches;
 }
 
-export interface AnalyzeOptions {
+export type Claim = z.infer<typeof ClaimsSchema>["claims"][number];
+
+/** Stage 1: read the essay and list the statements that need a citation (no source search yet). */
+export async function findClaims(input: DocumentInput): Promise<{ title: string; claims: Claim[] }> {
+  const { title, claims } = await extractClaims(input);
+  return { title, claims: claims.slice(0, MAX_CLAIMS) };
+}
+
+/** Claims sent back by the app for stage 2 (the ones the user kept ticked). Validated: it's user input. */
+export const ClaimsInputSchema = z
+  .array(
+    z.object({
+      quote: z.string().min(1).max(1500),
+      reason: z.string().max(1000),
+      category: ClaimsSchema.shape.claims.element.shape.category,
+      searchQuery: z.string().min(1).max(200),
+    }),
+  )
+  .min(1)
+  .max(MAX_CLAIMS);
+
+export interface SourceOptions {
   /** Pro "advanced search": also search the web for claims without a strong scholarly match. */
   advanced: boolean;
 }
 
-export async function analyzeDocument(input: DocumentInput, { advanced }: AnalyzeOptions): Promise<AnalysisResult> {
-  const { title, claims } = await extractClaims(input);
-  const limited = claims.slice(0, MAX_CLAIMS);
-  if (limited.length === 0) return { title, claims: [], advanced };
-
+/**
+ * Stage 2: find and match sources for the claims the user chose. This is the expensive part,
+ * so it only runs for claims the user actually wants cited.
+ */
+export async function findSourcesForClaims(claims: Claim[], { advanced }: SourceOptions): Promise<AnalyzedClaim[]> {
   // A few searches at a time: firing every claim at once trips the indexes' rate limits.
   const candidates: Source[][] = [];
-  for (let i = 0; i < limited.length; i += SEARCH_CONCURRENCY) {
-    const batch = limited.slice(i, i + SEARCH_CONCURRENCY);
+  for (let i = 0; i < claims.length; i += SEARCH_CONCURRENCY) {
+    const batch = claims.slice(i, i + SEARCH_CONCURRENCY);
     candidates.push(...(await Promise.all(batch.map((c) => findCandidateSources(c.searchQuery)))));
   }
-  const matches = await matchSources(limited, candidates);
+  const matches = await matchSources(claims, candidates);
 
-  const analyzed: AnalyzedClaim[] = limited.map((claim, i) => {
+  const analyzed: AnalyzedClaim[] = claims.map((claim, i) => {
     const byId = new Map(candidates[i].map((s) => [s.id, s]));
     const match = matches.find((m) => m.claimIndex === i);
     const suggestions: Suggestion[] = (match?.suggestions ?? []).flatMap((s) => {
@@ -183,7 +198,7 @@ export async function analyzeDocument(input: DocumentInput, { advanced }: Analyz
     return { ...claim, suggestions };
   });
 
-  if (!advanced) return { title, claims: analyzed, advanced };
+  if (!advanced) return analyzed;
 
   // Claims without a strong scholarly match (often statistics from reports or news) also get a web search.
   const unmatched = analyzed.flatMap((c, i) =>
@@ -197,6 +212,5 @@ export async function analyzeDocument(input: DocumentInput, { advanced }: Analyz
     const { claimIndex, ...suggestion } = m;
     analyzed[claimIndex]?.suggestions.push(suggestion);
   }
-
-  return { title, claims: analyzed, advanced };
+  return analyzed;
 }

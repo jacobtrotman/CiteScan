@@ -1,8 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   PanResponder,
@@ -14,23 +13,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LogoMark } from '@/components/LogoMark';
-import { analyze } from '@/lib/api';
+import { ProgressView } from '@/components/ProgressView';
+import { findClaims } from '@/lib/api';
 import { pickDocument, pickPagePhotos, scanPage, type Page } from '@/lib/pickers';
 import { useAppState } from '@/lib/app-state';
-import { getAccess, recordCheckUsed } from '@/lib/purchases';
+import { setPendingCheck } from '@/lib/pending';
+import { getAccess } from '@/lib/purchases';
 import { listAnalyses, newId, saveAnalysis } from '@/lib/storage';
 import { useTheme, type Theme } from '@/lib/theme';
 import type { UploadFile } from '@/lib/types';
 
-const PROGRESS_MESSAGES = [
-  'Reading your document…',
-  'Finding statements that need a source…',
-  'Searching scholarly databases…',
-  'Matching papers to your claims…',
-  'Searching the web for reports and news…',
-  'Checking every source is real…',
-  'Formatting citations…',
-];
 
 const NOTCH_HEIGHT = 64;
 
@@ -44,7 +36,6 @@ export default function HomeScreen() {
   const [pages, setPages] = useState<Page[]>([]);
   const [document, setDocument] = useState<UploadFile | null>(null);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [historyCount, setHistoryCount] = useState(0);
   const { access, refreshAccess } = useAppState();
 
@@ -56,12 +47,6 @@ export default function HomeScreen() {
       refreshAccess();
     }, [refreshAccess]),
   );
-
-  useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => setProgress((p) => Math.min(p + 1, PROGRESS_MESSAGES.length - 1)), 10000);
-    return () => clearInterval(timer);
-  }, [busy]);
 
   // Swiping up on the notch opens History, like pulling up a drawer.
   const [notchPan] = useState(() =>
@@ -122,23 +107,22 @@ export default function HomeScreen() {
         return;
       }
       const files: UploadFile[] = document ? [document] : pages.map(({ name, mimeType, data }) => ({ name, mimeType, data }));
-      setProgress(0);
+      const fileName = document ? document.name : `${pages.length} scanned page${pages.length === 1 ? '' : 's'}`;
+      const sourceKind = document ? 'file' : 'scan';
       setBusy(true);
       try {
-        // Pro users get advanced search (web sources as well as academic papers).
-        const result = await analyze(files, { advanced: current?.isPro ?? false });
-        await recordCheckUsed().catch(() => {});
-        refreshAccess();
-        const id = newId();
-        saveAnalysis({
-          ...result,
-          id,
-          createdAt: new Date().toISOString(),
-          fileName: document ? document.name : `${pages.length} scanned page${pages.length === 1 ? '' : 's'}`,
-          sourceKind: document ? 'file' : 'scan',
-        });
+        // Stage 1 only: find the sentences. Sources are searched after the user reviews them,
+        // and an essay check is only used at that point.
+        const { title, claims } = await findClaims(files);
         clear();
-        router.push({ pathname: '/result/[id]', params: { id } });
+        if (claims.length === 0) {
+          const id = newId();
+          saveAnalysis({ title, claims: [], id, createdAt: new Date().toISOString(), fileName, sourceKind });
+          router.push({ pathname: '/result/[id]', params: { id } });
+        } else {
+          setPendingCheck({ title, claims, fileName, sourceKind });
+          router.push('/review');
+        }
       } finally {
         setBusy(false);
       }
@@ -148,12 +132,11 @@ export default function HomeScreen() {
 
   if (busy) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <Logo theme={theme} />
-        <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 24 }} />
-        <Text style={styles.progressText}>{PROGRESS_MESSAGES[progress]}</Text>
-        <Text style={[styles.muted, { textAlign: 'center' }]}>This usually takes about a minute.</Text>
-      </View>
+      <ProgressView
+        messages={['Reading your essay…', 'Finding sentences that need a source…', 'Almost there…']}
+        intervalMs={5000}
+        hint="This usually takes about 10 seconds."
+      />
     );
   }
 
@@ -333,7 +316,6 @@ const makeStyles = (t: Theme) =>
     planLink: { fontSize: 14, fontWeight: '700', color: t.accent },
     tagline: { fontSize: 16, color: t.muted, lineHeight: 23 },
     muted: { fontSize: 15, color: t.muted, lineHeight: 21 },
-    progressText: { fontSize: 17, fontWeight: '600', color: t.text, marginTop: 8, textAlign: 'center' },
     options: { gap: 12 },
     option: {
       flexDirection: 'row',

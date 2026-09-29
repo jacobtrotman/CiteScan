@@ -37,6 +37,9 @@ export interface Claim {
   suggestions: Suggestion[];
 }
 
+/** A sentence found in stage 1, before sources are searched. */
+export type DraftClaim = Omit<Claim, 'suggestions'>;
+
 export interface AnalysisResult {
   title: string;
   claims: Claim[];

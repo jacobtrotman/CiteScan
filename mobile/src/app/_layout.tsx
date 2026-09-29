@@ -26,6 +26,7 @@ function RootStack() {
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="review" options={{ title: 'Choose sentences', headerBackTitle: 'Back' }} />
         <Stack.Screen name="result/[id]" options={{ title: 'Citations', headerBackTitle: 'Back' }} />
         <Stack.Screen name="history" options={{ presentation: 'modal', headerShown: false }} />
         <Stack.Screen name="paywall" options={{ presentation: 'modal', headerShown: false }} />
