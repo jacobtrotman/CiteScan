@@ -1,0 +1,152 @@
+{
+  "expo": {
+    "name": "CiteScan",
+    "slug": "citescan",
+    "scheme": "citescan",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.jacobtrotman.citescan",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "icon": {
+        "light": "./assets/icon.png",
+        "dark": "./assets/icon-dark.png",
+        "tinted": "./assets/icon-tinted.png"
+      }
+    },
+    "android": {
+      "package": "com.jacobtrotman.citescan",
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CiteScan needs access to your photos so you can choose pictures of your essay to check for citations.",
+          "cameraPermission": "CiteScan uses the camera to scan the pages of your essay."
+        }
+      ],
+      "expo-font",
+      [
+        "expo-alternate-app-icons",
+        [
+          {
+            "name": "Cyan",
+            "ios": {
+              "light": "./assets/icons/cyan-light.png",
+              "dark": "./assets/icons/cyan-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/cyan-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          },
+          {
+            "name": "Violet",
+            "ios": {
+              "light": "./assets/icons/violet-light.png",
+              "dark": "./assets/icons/violet-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/violet-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          },
+          {
+            "name": "Ocean",
+            "ios": {
+              "light": "./assets/icons/ocean-light.png",
+              "dark": "./assets/icons/ocean-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/ocean-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          },
+          {
+            "name": "Emerald",
+            "ios": {
+              "light": "./assets/icons/emerald-light.png",
+              "dark": "./assets/icons/emerald-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/emerald-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          },
+          {
+            "name": "Rose",
+            "ios": {
+              "light": "./assets/icons/rose-light.png",
+              "dark": "./assets/icons/rose-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/rose-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          },
+          {
+            "name": "Amber",
+            "ios": {
+              "light": "./assets/icons/amber-light.png",
+              "dark": "./assets/icons/amber-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/amber-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          },
+          {
+            "name": "Orange",
+            "ios": {
+              "light": "./assets/icons/orange-light.png",
+              "dark": "./assets/icons/orange-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/orange-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          },
+          {
+            "name": "Mono",
+            "ios": {
+              "light": "./assets/icons/mono-light.png",
+              "dark": "./assets/icons/mono-dark.png",
+              "tinted": "./assets/icon-tinted.png"
+            },
+            "android": {
+              "foregroundImage": "./assets/icons/mono-foreground.png",
+              "backgroundColor": "#FFFFFF"
+            }
+          }
+        ]
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

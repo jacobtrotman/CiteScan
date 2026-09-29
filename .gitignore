@@ -1,0 +1,15 @@
+# Dependencies and build output
+node_modules/
+dist/
+.expo/
+web-build/
+ios/
+android/
+
+# Secrets - never commit these
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
