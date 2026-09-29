@@ -7,7 +7,10 @@ import { recordUsage } from "./cost.js";
 import { findWebSources } from "./websearch.js";
 
 const client = new Anthropic();
+// Reading the essay (including photos and handwriting) uses the most capable model; judging
+// candidate sources and web searching use Haiku, which is ~4x cheaper per token.
 const MODEL = "claude-opus-5-5";
+const SOURCE_MODEL = "claude-haiku-4-5";
 const MAX_CLAIMS = 15;
 const SEARCH_CONCURRENCY = 3;
 
@@ -130,10 +133,9 @@ async function matchSources(
   }));
 
   const response = await client.beta.messages.parse({
-    model: MODEL,
-    max_tokens: 16000,
-    ...FALLBACK_OPTIONS,
-    output_config: { effort: "medium", format: betaZodOutputFormat(MatchSchema) },
+    model: SOURCE_MODEL,
+    max_tokens: 8000,
+    output_config: { format: betaZodOutputFormat(MatchSchema) },
     system:
       "For each essay claim you are given candidate sources from scholarly search engines. Pick up to 3 " +
       "candidates that genuinely support the claim, judging from the title and abstract. Mark a source " +
@@ -143,7 +145,7 @@ async function matchSources(
     messages: [{ role: "user", content: JSON.stringify(payload) }],
   });
 
-  recordUsage("match sources", MODEL, response.usage);
+  recordUsage("match sources", SOURCE_MODEL, response.usage);
   if (response.stop_reason === "refusal" || !response.parsed_output) return [];
   return response.parsed_output.matches;
 }
@@ -205,7 +207,7 @@ export async function findSourcesForClaims(claims: Claim[], { advanced }: Source
   const unmatched = analyzed.flatMap((c, i) =>
     c.suggestions.some((s) => s.strength === "strong") ? [] : [{ claimIndex: i, quote: c.quote }],
   );
-  const webMatches = await findWebSources(client, MODEL, FALLBACK_OPTIONS, unmatched).catch((err) => {
+  const webMatches = await findWebSources(client, SOURCE_MODEL, unmatched).catch((err) => {
     console.warn("web search fallback failed:", err);
     return [];
   });

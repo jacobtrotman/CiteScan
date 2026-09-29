@@ -9,6 +9,8 @@ import { File, Paths } from 'expo-file-system';
 import Purchases, { type CustomerInfo, type PurchasesPackage } from 'react-native-purchases';
 
 export const FREE_CHECKS = 3;
+/** Fair use: Pro Advanced (web) searches per calendar month. After this, checks use papers only. */
+export const ADVANCED_MONTHLY_LIMIT = 30;
 export const PACK_CHECKS = 3;
 export const ESSAY_PACK_ID = 'essay_pack';
 
@@ -20,6 +22,9 @@ export const IS_TEST_STORE = API_KEY?.startsWith('test_') ?? false;
 interface Account {
   userId: string;
   checksUsed: number;
+  /** "YYYY-MM" the advanced count belongs to. */
+  advancedMonth?: string;
+  advancedUsed?: number;
 }
 
 const accountFile = new File(Paths.document, 'account.json');
@@ -149,4 +154,20 @@ export async function resetTestAccount() {
   writeAccount(account);
   ensureConfigured();
   if (configured) await Purchases.logIn(account.userId);
+}
+
+const thisMonth = () => new Date().toISOString().slice(0, 7);
+
+/** How many Advanced searches a Pro user has left this month. */
+export function getAdvancedLeft(): number {
+  const account = readAccount();
+  const used = account.advancedMonth === thisMonth() ? (account.advancedUsed ?? 0) : 0;
+  return Math.max(0, ADVANCED_MONTHLY_LIMIT - used);
+}
+
+export function recordAdvancedUsed() {
+  const account = readAccount();
+  const month = thisMonth();
+  const used = account.advancedMonth === month ? (account.advancedUsed ?? 0) : 0;
+  writeAccount({ ...account, advancedMonth: month, advancedUsed: used + 1 });
 }

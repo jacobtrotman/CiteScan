@@ -91,7 +91,6 @@ function normalizeUrl(url: string) {
 export async function findWebSources(
   client: Anthropic,
   model: string,
-  requestOptions: Pick<Anthropic.Beta.MessageCreateParams, "betas" | "fallbacks">,
   claims: { claimIndex: number; quote: string }[],
 ): Promise<WebMatch[]> {
   if (claims.length === 0) return [];
@@ -102,9 +101,7 @@ export async function findWebSources(
   for (let turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
     const response = await client.beta.messages.create({
       model,
-      max_tokens: 16000,
-      ...requestOptions,
-      output_config: { effort: "medium" },
+      max_tokens: 8000,
       system:
         "You help students find sources for statements in their essays. For each claim, search the web for a " +
         "reliable source a teacher would accept: official statistics, government or NGO reports, reputable news " +
@@ -114,7 +111,8 @@ export async function findWebSources(
         "once. Copy URLs and titles exactly from the search results - never invent them. Keep explanations under 20 words.",
       tools: [
         {
-          type: "web_search_20260209",
+          // Haiku 4.5 uses the basic web search tool (the newer variant needs Opus/Sonnet 4.6+).
+          type: "web_search_20250305",
           name: "web_search",
           // One search per claim keeps cost predictable: search results are most of this step's input.
           max_uses: Math.min(claims.length + 2, 10),

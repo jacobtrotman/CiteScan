@@ -7,7 +7,7 @@ import { ProgressView } from '@/components/ProgressView';
 import { findSources } from '@/lib/api';
 import { useAppState } from '@/lib/app-state';
 import { clearPendingCheck, getPendingCheck } from '@/lib/pending';
-import { recordCheckUsed } from '@/lib/purchases';
+import { ADVANCED_MONTHLY_LIMIT, getAdvancedLeft, recordAdvancedUsed, recordCheckUsed } from '@/lib/purchases';
 import { newId, saveAnalysis } from '@/lib/storage';
 import { useTheme, type Theme } from '@/lib/theme';
 import type { ClaimCategory } from '@/lib/types';
@@ -35,6 +35,9 @@ export default function ReviewScreen() {
   const [busy, setBusy] = useState(false);
 
   const isPro = access?.isPro ?? false;
+  const [advancedLeft] = useState(getAdvancedLeft);
+  // Pro gets web sources until the monthly fair-use limit; after that, papers only.
+  const advanced = isPro && advancedLeft > 0;
   const count = selected.filter(Boolean).length;
 
   if (!pending) {
@@ -56,8 +59,9 @@ export default function ReviewScreen() {
     const chosen = pending.claims.filter((_, i) => selected[i]);
     setBusy(true);
     try {
-      const result = await findSources(chosen, { advanced: isPro });
+      const result = await findSources(chosen, { advanced });
       await recordCheckUsed().catch(() => {});
+      if (result.advanced) recordAdvancedUsed();
       refreshAccess();
       const id = newId();
       saveAnalysis({
@@ -83,7 +87,7 @@ export default function ReviewScreen() {
         messages={[
           'Searching scholarly databases…',
           'Matching papers to your sentences…',
-          ...(isPro ? ['Searching the web for reports and news…', 'Checking every source is real…'] : []),
+          ...(advanced ? ['Searching the web for reports and news…', 'Checking every source is real…'] : []),
           'Formatting citations…',
         ]}
         intervalMs={8000}
@@ -143,7 +147,9 @@ export default function ReviewScreen() {
         </Pressable>
         <Text style={styles.footnote}>
           {isPro
-            ? 'Advanced search is on: papers, news, reports and official statistics.'
+            ? advanced
+              ? `Advanced search is on: papers, news, reports and statistics · ${advancedLeft} of ${ADVANCED_MONTHLY_LIMIT} left this month.`
+              : `You've used this month's ${ADVANCED_MONTHLY_LIMIT} Advanced searches, so this check uses academic papers. It resets next month.`
             : `Uses 1 essay check${access ? ` · ${access.checksLeft} left` : ''}. Academic papers only; Pro adds web sources.`}
         </Text>
       </View>

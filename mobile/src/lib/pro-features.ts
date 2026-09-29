@@ -6,7 +6,7 @@ export const PRO_FEATURES: { icon: keyof typeof Ionicons.glyphMap; title: string
   {
     icon: 'globe-outline',
     title: 'Advanced search',
-    detail: 'Also searches news, reports and official statistics, not just academic papers.',
+    detail: 'Also searches news, reports and official statistics, not just academic papers (30 essays a month).',
   },
   {
     icon: 'time-outline',

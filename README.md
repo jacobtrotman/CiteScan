@@ -18,8 +18,9 @@ Existing citation tools expect your essay to be typed on a computer already. Cit
 | Flag sentences that need citing, with reasons | ✅ | ✅ |
 | Academic paper suggestions with APA & MLA citations | ✅ | ✅ |
 | Essay checks | 3 free, plus Essay Packs | Unlimited |
-| **Advanced search**: news, reports and official statistics | | ✅ |
+| **Advanced search**: news, reports and official statistics | | ✅ (30 essays/month) |
 | **Full history**: open and search essays older than 7 days | | ✅ |
+| **Waiting game** instead of the ad space while sources load | | ✅ |
 | **Custom themes**: 9 accent colours × 6 backgrounds, light and dark | | ✅ |
 | **Custom app icon**: 8 icons, each with light and dark versions | | ✅ |
 
@@ -64,12 +65,13 @@ Development uses RevenueCat's **Test Store**, which simulates purchases in Expo 
 - **The API key lives on the server.** Anything shipped inside an app binary can be extracted, so the phone never holds the Anthropic key.
 - **Resilient search.** The free scholarly indexes often rate-limit, so searches are batched and retried with backoff. In testing this took an essay from 2/4 to 4/4 sentences with sources, and web search covers statistics that academic databases don't index.
 - **Two stages so the user stays in control and costs stay down.** Finding sentences is quick and cheap; searching and matching sources is where most of the cost is. Users untick sentences they've already cited before stage 2, and an essay check is only used when they confirm.
-- **Model:** Claude Opus 5.5 with structured outputs, plus server-side refusal fallbacks.
+- **The right model for each job, measured.** Reading the essay (including handwriting) uses Claude Opus 5.5. Judging candidate sources and web searching use Claude Haiku 4.5, and APA/MLA citations are built in code rather than written by the model. Every request logs its cost per stage (`server/src/cost.ts`). Together these cut a Pro check with web search from **$0.46 to about $0.10**, and a free check to **about $0.02**, with every test sentence still getting a strong source.
+- **Pricing that covers costs.** Pro is $3.99/month, and Advanced (web) search has a fair-use limit of 30 essays a month; after that, checks carry on with academic papers only. So even heavy users stay profitable.
 
 ## Tech stack
 
 - **App:** Expo SDK 57, React Native, Expo Router, TypeScript, `react-native-purchases`, `expo-image-picker`, `expo-document-picker`, `expo-image-manipulator`, `react-native-svg`, `expo-alternate-app-icons`
-- **Server:** Node.js, Express, TypeScript, Anthropic SDK (`@anthropic-ai/sdk`), Zod, Mammoth (Word files)
+- **Server:** Node.js, Express, TypeScript, Anthropic SDK (`@anthropic-ai/sdk`: Claude Opus 5.5 + Claude Haiku 4.5), Zod, Mammoth (Word files)
 - **Data:** OpenAlex, Crossref, Claude web search
 - **Payments:** RevenueCat (entitlements, offerings, consumables, Test Store)
 
