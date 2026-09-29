@@ -13,6 +13,11 @@ export const PRO_FEATURES: { icon: keyof typeof Ionicons.glyphMap; title: string
     title: 'Full history',
     detail: 'Open and search every essay you’ve checked, not just the last 7 days.',
   },
+  {
+    icon: 'game-controller-outline',
+    title: 'Waiting game',
+    detail: 'No ads: play a quick game while your sources are found.',
+  },
   { icon: 'color-palette-outline', title: 'Your own colours', detail: 'Pick an accent colour and background theme.' },
   { icon: 'apps-outline', title: 'Custom app icon', detail: 'Choose the CiteScan icon on your home screen.' },
 ];
