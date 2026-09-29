@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import express from "express";
 import { rateLimit } from "express-rate-limit";
 import mammoth from "mammoth";
+import { withCostTracking } from "./cost.js";
 import {
   AnalysisError,
   ClaimsInputSchema,
@@ -108,7 +109,7 @@ app.post("/claims", async (req, res) => {
     if (input.kind === "text" && input.text.trim().length < 50) {
       throw new AnalysisError("That file doesn't contain enough text to analyse.");
     }
-    res.json(await findClaims(input));
+    res.json(await withCostTracking("stage 1 /claims", () => findClaims(input)));
   } catch (err) {
     sendError(res, err);
   }
@@ -121,7 +122,10 @@ app.post("/sources", async (req, res) => {
     const parsed = ClaimsInputSchema.safeParse(body.claims);
     if (!parsed.success) throw new AnalysisError("Choose at least one sentence to find sources for.");
     const advanced = body.advanced === true;
-    res.json({ claims: await findSourcesForClaims(parsed.data, { advanced }), advanced });
+    const claims = await withCostTracking(`stage 2 /sources (${parsed.data.length} sentences, advanced=${advanced})`, () =>
+      findSourcesForClaims(parsed.data, { advanced }),
+    );
+    res.json({ claims, advanced });
   } catch (err) {
     sendError(res, err);
   }

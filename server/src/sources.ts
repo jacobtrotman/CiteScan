@@ -15,7 +15,9 @@ export interface Source {
 
 const CONTACT_EMAIL = process.env.CONTACT_EMAIL;
 const OPENALEX_API_KEY = process.env.OPENALEX_API_KEY;
-const PER_SOURCE = 5;
+// Top results per index: more candidates mean more text for Claude to read (the main cost).
+const PER_SOURCE = 3;
+const ABSTRACT_CHARS = 500;
 const TIMEOUT_MS = 10_000;
 
 function normalizeDoi(doi: string | null | undefined): string | null {
@@ -31,7 +33,7 @@ function rebuildAbstract(index: Record<string, number[]> | null | undefined): st
     for (const p of positions) words[p] = word;
   }
   const text = words.filter(Boolean).join(" ");
-  return text.length > 1200 ? text.slice(0, 1200) + "…" : text;
+  return text.length > ABSTRACT_CHARS ? text.slice(0, ABSTRACT_CHARS) + "…" : text;
 }
 
 const RETRIES = 2;
@@ -108,7 +110,7 @@ async function searchCrossref(query: string): Promise<Source[]> {
         venue: w["container-title"]?.[0] ?? null,
         doi,
         url: doi ? `https://doi.org/${doi}` : (w.URL ?? null),
-        abstract: abstract && abstract.length > 1200 ? abstract.slice(0, 1200) + "…" : abstract,
+        abstract: abstract && abstract.length > ABSTRACT_CHARS ? abstract.slice(0, ABSTRACT_CHARS) + "…" : abstract,
         citedBy: w["is-referenced-by-count"] ?? null,
         origin: "crossref",
       };

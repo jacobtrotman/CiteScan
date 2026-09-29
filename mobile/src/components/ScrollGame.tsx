@@ -1,11 +1,12 @@
 import { File, Paths } from 'expo-file-system';
 import { memo, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LogoMark } from '@/components/LogoMark';
 import { useTheme, type Theme } from '@/lib/theme';
 
 // A tiny "flappy" game for Pro users while they wait: tap to fly the CiteScan logo
-// through the gaps between scrolls. Physics live in refs; each frame is copied into state.
+// through the gaps between scrolls. Physics run in refs; positions are pushed straight into
+// Animated values each frame, so React only re-renders when a scroll appears or the score changes.
 const HEIGHT = 320;
 const BIRD_SIZE = 34;
 const BIRD_RADIUS = 13;
@@ -19,16 +20,10 @@ const ROLL = 16;
 
 interface Scroll {
   id: number;
-  x: number;
+  /** World position where the scroll starts; on screen it sits at x0 - distance travelled. */
+  x0: number;
   gapY: number;
   scored: boolean;
-}
-
-interface Frame {
-  birdY: number;
-  tilt: number;
-  scrolls: Scroll[];
-  score: number;
 }
 
 type Status = 'ready' | 'playing' | 'over';
@@ -58,10 +53,15 @@ export function ScrollGame() {
   const [width, setWidth] = useState(0);
   const [status, setStatus] = useState<Status>('ready');
   const [best, setBest] = useState(loadBest);
-  const [frame, setFrame] = useState<Frame>({ birdY: HEIGHT / 2, tilt: 0, scrolls: [], score: 0 });
+  const [score, setScore] = useState(0);
+  const [scrolls, setScrolls] = useState<Scroll[]>([]);
+
+  const [birdY] = useState(() => new Animated.Value(HEIGHT / 2));
+  const [tilt] = useState(() => new Animated.Value(0));
+  const [distance] = useState(() => new Animated.Value(0));
 
   const statusRef = useRef<Status>('ready');
-  const physics = useRef({ y: HEIGHT / 2, v: 0, scrolls: [] as Scroll[], score: 0, nextId: 0, overAt: 0 });
+  const physics = useRef({ y: HEIGHT / 2, v: 0, distance: 0, scrolls: [] as Scroll[], score: 0, nextId: 0, overAt: 0 });
 
   useEffect(() => {
     if (!width) return;
@@ -73,11 +73,11 @@ export function ScrollGame() {
       statusRef.current = 'over';
       physics.current.overAt = performance.now();
       setStatus('over');
-      const score = physics.current.score;
+      const final = physics.current.score;
       setBest((b) => {
-        if (score > b) {
-          saveBest(score);
-          return score;
+        if (final > b) {
+          saveBest(final);
+          return final;
         }
         return b;
       });
@@ -91,51 +91,69 @@ export function ScrollGame() {
       if (statusRef.current === 'playing') {
         p.v += GRAVITY * dt;
         p.y += p.v * dt;
+        p.distance += SPEED * dt;
 
-        const lastScroll = p.scrolls[p.scrolls.length - 1];
-        if (!lastScroll || lastScroll.x < width - SPACING) {
+        let listChanged = false;
+        const newest = p.scrolls[p.scrolls.length - 1];
+        if (!newest || newest.x0 - p.distance < width - SPACING) {
           const margin = GAP / 2 + 30;
-          p.scrolls.push({ id: p.nextId++, x: width, gapY: margin + Math.random() * (HEIGHT - 2 * margin), scored: false });
+          p.scrolls.push({
+            id: p.nextId++,
+            x0: p.distance + width,
+            gapY: margin + Math.random() * (HEIGHT - 2 * margin),
+            scored: false,
+          });
+          listChanged = true;
         }
+        const visible = p.scrolls.filter((s) => s.x0 - p.distance > -SCROLL_WIDTH - ROLL);
+        if (visible.length !== p.scrolls.length) {
+          p.scrolls = visible;
+          listChanged = true;
+        }
+
         for (const s of p.scrolls) {
-          s.x -= SPEED * dt;
-          if (!s.scored && s.x + SCROLL_WIDTH < birdX - BIRD_RADIUS) {
+          const x = s.x0 - p.distance;
+          if (!s.scored && x + SCROLL_WIDTH < birdX - BIRD_RADIUS) {
             s.scored = true;
             p.score += 1;
+            setScore(p.score);
           }
         }
-        p.scrolls = p.scrolls.filter((s) => s.x > -SCROLL_WIDTH - ROLL);
+        if (listChanged) setScrolls([...p.scrolls]);
 
         const hitEdge = p.y - BIRD_RADIUS < 0 || p.y + BIRD_RADIUS > HEIGHT;
         const hitScroll = p.scrolls.some((s) => {
-          const withinX = birdX + BIRD_RADIUS > s.x - 4 && birdX - BIRD_RADIUS < s.x + SCROLL_WIDTH + 4;
+          const x = s.x0 - p.distance;
+          const withinX = birdX + BIRD_RADIUS > x - 4 && birdX - BIRD_RADIUS < x + SCROLL_WIDTH + 4;
           const inGap = p.y - BIRD_RADIUS > s.gapY - GAP / 2 && p.y + BIRD_RADIUS < s.gapY + GAP / 2;
           return withinX && !inGap;
         });
         if (hitEdge || hitScroll) endGame();
+
+        tilt.setValue(Math.max(-25, Math.min(70, p.v / 8)));
+        distance.setValue(p.distance);
       } else if (statusRef.current === 'ready') {
         p.y = HEIGHT / 2 + Math.sin(now / 250) * 6;
+        tilt.setValue(0);
       }
 
-      setFrame({
-        birdY: p.y,
-        tilt: statusRef.current === 'playing' ? Math.max(-25, Math.min(70, p.v / 8)) : 0,
-        scrolls: p.scrolls.map((s) => ({ ...s })),
-        score: p.score,
-      });
+      birdY.setValue(p.y);
       raf = requestAnimationFrame(loop);
     };
 
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [width]);
+  }, [width, birdY, tilt, distance]);
 
   const onTap = () => {
     const p = physics.current;
     if (statusRef.current === 'over') {
       // A short pause so a frantic tap doesn't instantly restart.
       if (performance.now() - p.overAt < 600) return;
-      Object.assign(p, { y: HEIGHT / 2, v: 0, scrolls: [], score: 0 });
+      Object.assign(p, { y: HEIGHT / 2, v: 0, distance: 0, scrolls: [], score: 0 });
+      distance.setValue(0);
+      setScrolls([]);
+      setScore(0);
       statusRef.current = 'ready';
       setStatus('ready');
       return;
@@ -151,30 +169,37 @@ export function ScrollGame() {
 
   return (
     <Pressable style={styles.area} onPressIn={onTap} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-      {frame.scrolls.map((s) => (
-        <View key={s.id} style={[styles.column, { transform: [{ translateX: s.x }] }]} pointerEvents="none">
+      {scrolls.map((s) => (
+        <Animated.View
+          key={s.id}
+          pointerEvents="none"
+          style={[styles.column, { transform: [{ translateX: Animated.subtract(s.x0, distance) }] }]}
+        >
           <ScrollPiece height={s.gapY - GAP / 2} rollAt="bottom" theme={theme} />
           <View style={{ height: GAP }} />
           <ScrollPiece height={HEIGHT - (s.gapY + GAP / 2)} rollAt="top" theme={theme} />
-        </View>
+        </Animated.View>
       ))}
 
       {width > 0 && (
-        <View
+        <Animated.View
           pointerEvents="none"
           style={{
             position: 'absolute',
             left: birdX - BIRD_SIZE / 2,
-            top: frame.birdY - BIRD_SIZE / 2,
-            transform: [{ rotate: `${frame.tilt}deg` }],
+            top: -BIRD_SIZE / 2,
+            transform: [
+              { translateY: birdY },
+              { rotate: tilt.interpolate({ inputRange: [-25, 70], outputRange: ['-25deg', '70deg'], extrapolate: 'clamp' }) },
+            ],
           }}
         >
           <LogoMark size={BIRD_SIZE} color={theme.accent} />
-        </View>
+        </Animated.View>
       )}
 
       <Text style={styles.score} pointerEvents="none">
-        {frame.score}
+        {score}
       </Text>
       <Text style={styles.best} pointerEvents="none">
         Best {best}
@@ -184,7 +209,7 @@ export function ScrollGame() {
         <View style={styles.overlay} pointerEvents="none">
           <Text style={styles.overlayTitle}>{status === 'over' ? 'Game over' : 'Tap to fly'}</Text>
           <Text style={styles.overlayHint}>
-            {status === 'over' ? `You scored ${frame.score}. Tap to play again.` : 'Dodge the scrolls while we find your sources'}
+            {status === 'over' ? `You scored ${score}. Tap to play again.` : 'Dodge the scrolls while we find your sources'}
           </Text>
         </View>
       )}

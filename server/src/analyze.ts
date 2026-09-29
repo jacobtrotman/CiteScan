@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { findCandidateSources, type Source } from "./sources.js";
+import { formatApa, formatMla } from "./citations.js";
+import { recordUsage } from "./cost.js";
 import { findWebSources } from "./websearch.js";
 
 const client = new Anthropic();
@@ -43,9 +45,7 @@ const MatchSchema = z.object({
         z.object({
           sourceId: z.string().describe("The id of a candidate source, copied exactly"),
           strength: z.enum(["strong", "possible"]),
-          explanation: z.string().describe("One sentence on how this source supports the claim"),
-          apa: z.string().describe("APA 7 reference-list entry built only from the given metadata"),
-          mla: z.string().describe("MLA 9 works-cited entry built only from the given metadata"),
+          explanation: z.string().describe("Under 20 words: how this source supports the claim"),
         }),
       ),
     }),
@@ -106,6 +106,7 @@ async function extractClaims(input: DocumentInput) {
     ],
   });
 
+  recordUsage("find sentences", MODEL, response.usage);
   if (response.stop_reason === "refusal") throw new AnalysisError("This document couldn't be analysed.");
   if (!response.parsed_output) throw new AnalysisError("The document could not be read. Try a clearer scan.");
   return response.parsed_output;
@@ -118,14 +119,12 @@ async function matchSources(
   const payload = claims.map((c, i) => ({
     claimIndex: i,
     claim: c.quote,
+    // Only what's needed to judge relevance; citations are built in code from the full metadata.
     candidates: candidates[i].map((s) => ({
       id: s.id,
       title: s.title,
-      authors: s.authors.slice(0, 6),
       year: s.year,
       venue: s.venue,
-      doi: s.doi,
-      url: s.url,
       abstract: s.abstract,
     })),
   }));
@@ -140,11 +139,11 @@ async function matchSources(
       "candidates that genuinely support the claim, judging from the title and abstract. Mark a source " +
       '"strong" only if it directly supports the claim; otherwise "possible". Omit candidates that are ' +
       "off-topic - an empty suggestion list is better than a misleading one. Only use ids from the " +
-      "candidate list, and build citations only from the metadata provided; never invent authors, " +
-      "years, page numbers or DOIs.",
+      "candidate list. Keep each explanation under 20 words.",
     messages: [{ role: "user", content: JSON.stringify(payload) }],
   });
 
+  recordUsage("match sources", MODEL, response.usage);
   if (response.stop_reason === "refusal" || !response.parsed_output) return [];
   return response.parsed_output.matches;
 }
@@ -193,7 +192,9 @@ export async function findSourcesForClaims(claims: Claim[], { advanced }: Source
     const match = matches.find((m) => m.claimIndex === i);
     const suggestions: Suggestion[] = (match?.suggestions ?? []).flatMap((s) => {
       const source = byId.get(s.sourceId);
-      return source ? [{ source, strength: s.strength, explanation: s.explanation, apa: s.apa, mla: s.mla }] : [];
+      return source
+        ? [{ source, strength: s.strength, explanation: s.explanation, apa: formatApa(source), mla: formatMla(source) }]
+        : [];
     });
     return { ...claim, suggestions };
   });

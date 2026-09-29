@@ -4,6 +4,8 @@
 // so a source can never be invented.
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { formatApa, formatMla } from "./citations.js";
+import { recordUsage } from "./cost.js";
 import type { Source } from "./sources.js";
 
 const MAX_CONTINUATIONS = 4;
@@ -20,8 +22,6 @@ const ReportSchema = z.object({
           year: z.number().int().nullable(),
           strength: z.enum(["strong", "possible"]),
           explanation: z.string(),
-          apa: z.string(),
-          mla: z.string(),
         }),
       ),
     }),
@@ -52,16 +52,14 @@ const REPORT_TOOL: Anthropic.Beta.BetaTool = {
               items: {
                 type: "object",
                 additionalProperties: false,
-                required: ["url", "title", "publisher", "year", "strength", "explanation", "apa", "mla"],
+                required: ["url", "title", "publisher", "year", "strength", "explanation"],
                 properties: {
                   url: { type: "string", description: "Copied exactly from a search result" },
                   title: { type: "string" },
                   publisher: { type: ["string", "null"], description: "Organisation or site that published it" },
                   year: { type: ["integer", "null"] },
                   strength: { type: "string", enum: ["strong", "possible"] },
-                  explanation: { type: "string", description: "One sentence on how it supports the claim" },
-                  apa: { type: "string", description: "APA 7 reference built only from what the search showed" },
-                  mla: { type: "string", description: "MLA 9 works-cited entry built only from what the search showed" },
+                  explanation: { type: "string", description: "Under 20 words: how it supports the claim" },
                 },
               },
             },
@@ -111,15 +109,15 @@ export async function findWebSources(
         "You help students find sources for statements in their essays. For each claim, search the web for a " +
         "reliable source a teacher would accept: official statistics, government or NGO reports, reputable news " +
         "organisations, books, or research summaries from universities. Prefer the original source of a " +
-        "statistic over articles that repeat it. Aim for 1-2 sources per claim and only include a source if a " +
+        "statistic over articles that repeat it. Search once per claim (retry once only if a search finds nothing useful) and report 1-2 sources, only including a source if a " +
         "search result genuinely supports the claim. When you have finished searching, call report_sources " +
-        "once. Copy URLs exactly from the search results and build citations only from what the results show - " +
-        "never invent authors, dates or URLs.",
+        "once. Copy URLs and titles exactly from the search results - never invent them. Keep explanations under 20 words.",
       tools: [
         {
           type: "web_search_20260209",
           name: "web_search",
-          max_uses: Math.min(claims.length * 2, 12),
+          // One search per claim keeps cost predictable: search results are most of this step's input.
+          max_uses: Math.min(claims.length + 2, 10),
           blocked_domains: ["wikipedia.org"],
         },
         REPORT_TOOL,
@@ -127,6 +125,7 @@ export async function findWebSources(
       messages,
     });
 
+    recordUsage("web search", model, response.usage);
     for (const block of response.content) {
       if (block.type === "web_search_tool_result" && Array.isArray(block.content)) {
         for (const result of block.content) seenUrls.add(normalizeUrl(result.url));
@@ -143,13 +142,8 @@ export async function findWebSources(
         r.sources
           .filter((s) => seenUrls.has(normalizeUrl(s.url)))
           .slice(0, 2)
-          .map((s) => ({
-            claimIndex: r.claimIndex,
-            strength: s.strength,
-            explanation: s.explanation,
-            apa: s.apa,
-            mla: s.mla,
-            source: {
+          .map((s) => {
+            const source: Source = {
               id: `web:${s.url}`,
               title: s.title,
               authors: [],
@@ -159,9 +153,17 @@ export async function findWebSources(
               url: s.url,
               abstract: null,
               citedBy: null,
-              origin: "web" as const,
-            },
-          })),
+              origin: "web",
+            };
+            return {
+              claimIndex: r.claimIndex,
+              strength: s.strength,
+              explanation: s.explanation,
+              apa: formatApa(source),
+              mla: formatMla(source),
+              source,
+            };
+          }),
       );
     }
 
