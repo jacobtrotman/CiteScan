@@ -7,10 +7,13 @@ import { ProgressView } from '@/components/ProgressView';
 import { findSources } from '@/lib/api';
 import { useAppState } from '@/lib/app-state';
 import { clearPendingCheck, getPendingCheck } from '@/lib/pending';
-import { ADVANCED_MONTHLY_LIMIT, getAdvancedLeft, recordAdvancedUsed, recordCheckUsed } from '@/lib/purchases';
+import { canAffordAdvanced, getProUsage, recordSpend } from '@/lib/purchases';
 import { newId, saveAnalysis } from '@/lib/storage';
 import { useTheme, type Theme } from '@/lib/theme';
 import type { ClaimCategory } from '@/lib/types';
+
+/** Most sentences one check can find sources for (matches the server's limit). */
+const MAX_SELECTED = 10;
 
 const CATEGORY_LABELS: Record<ClaimCategory, string> = {
   statistic: 'Statistic',
@@ -31,13 +34,16 @@ export default function ReviewScreen() {
   const insets = useSafeAreaInsets();
   const { access, refreshAccess } = useAppState();
   const [pending] = useState(getPendingCheck);
-  const [selected, setSelected] = useState<boolean[]>(() => pending?.claims.map(() => true) ?? []);
+  // Everything starts ticked, up to the per-check limit.
+  const [selected, setSelected] = useState<boolean[]>(() => pending?.claims.map((_, i) => i < MAX_SELECTED) ?? []);
   const [busy, setBusy] = useState(false);
 
   const isPro = access?.isPro ?? false;
-  const [advancedLeft] = useState(getAdvancedLeft);
-  // Pro gets web sources until the monthly fair-use limit; after that, papers only.
-  const advanced = isPro && advancedLeft > 0;
+  const plan = access?.plan ?? null;
+  const proCheck = pending?.mode === 'pro' && plan !== null;
+  // Advanced (web) search only if the worst case still fits in this month's Pro allowance.
+  const [advanced] = useState(() => proCheck && canAffordAdvanced(plan));
+  const [usage] = useState(() => (plan ? getProUsage(plan) : null));
   const count = selected.filter(Boolean).length;
 
   if (!pending) {
@@ -51,17 +57,24 @@ export default function ReviewScreen() {
     );
   }
 
-  const toggle = (i: number) => setSelected((s) => s.map((v, j) => (j === i ? !v : v)));
-  const allSelected = count === selected.length;
-  const toggleAll = () => setSelected((s) => s.map(() => !allSelected));
+  const toggle = (i: number) =>
+    setSelected((s) => {
+      if (!s[i] && s.filter(Boolean).length >= MAX_SELECTED) {
+        Alert.alert('Up to 10 sentences', 'One check can find sources for up to 10 sentences. Untick one to choose this instead.');
+        return s;
+      }
+      return s.map((v, j) => (j === i ? !v : v));
+    });
+  const allSelected = count === Math.min(selected.length, MAX_SELECTED);
+  const toggleAll = () => setSelected((s) => s.map((_, i) => !allSelected && i < MAX_SELECTED));
 
   const onFindSources = async () => {
     const chosen = pending.claims.filter((_, i) => selected[i]);
     setBusy(true);
     try {
       const result = await findSources(chosen, { advanced });
-      await recordCheckUsed().catch(() => {});
-      if (result.advanced) recordAdvancedUsed();
+      // Pro checks count their real cost against the allowance; credit checks were paid for at the start.
+      if (pending.mode === 'pro') recordSpend(result.cost);
       refreshAccess();
       const id = newId();
       saveAnalysis({
@@ -102,7 +115,8 @@ export default function ReviewScreen() {
         <Text style={styles.title}>{pending.title}</Text>
         <Text style={styles.muted}>
           We found {pending.claims.length} sentence{pending.claims.length === 1 ? '' : 's'} that may need a citation.
-          Untick any you’ve already cited or don’t need, and we’ll find sources for the rest.
+          Untick any you’ve already cited or don’t need, and we’ll find sources for the rest
+          {pending.claims.length > MAX_SELECTED ? ` (up to ${MAX_SELECTED} per check)` : ''}.
         </Text>
 
         <Pressable onPress={toggleAll} hitSlop={8} style={styles.toggleAll}>
@@ -146,11 +160,14 @@ export default function ReviewScreen() {
           </Text>
         </Pressable>
         <Text style={styles.footnote}>
-          {isPro
+          {proCheck && usage
             ? advanced
-              ? `Advanced search is on: papers, news, reports and statistics · ${advancedLeft} of ${ADVANCED_MONTHLY_LIMIT} left this month.`
-              : `You've used this month's ${ADVANCED_MONTHLY_LIMIT} Advanced searches, so this check uses academic papers. It resets next month.`
-            : `Uses 1 essay check${access ? ` · ${access.checksLeft} left` : ''}. Academic papers only; Pro adds web sources.`}
+              ? `Advanced search is on: papers, news, reports and statistics · ${Math.round((usage.remaining / usage.allowance) * 100)}% of this month's allowance left.`
+              : "Not enough of this month's allowance left for Advanced search, so this check uses academic papers."
+            : isPro
+              ? 'Using an Essay Pack check: academic papers only.'
+              : 'Academic papers only; Pro adds web sources.'}
+          {pending.claims.length > MAX_SELECTED ? ` Up to ${MAX_SELECTED} sentences per check.` : ''}
         </Text>
       </View>
     </View>

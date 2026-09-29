@@ -8,7 +8,8 @@ import { formatApa, formatMla } from "./citations.js";
 import { recordUsage } from "./cost.js";
 import type { Source } from "./sources.js";
 
-const MAX_CONTINUATIONS = 4;
+// Bounds the worst-case cost: at most two API calls for the web search step.
+const MAX_CONTINUATIONS = 1;
 
 const ReportSchema = z.object({
   results: z.array(
@@ -101,7 +102,7 @@ export async function findWebSources(
   for (let turn = 0; turn <= MAX_CONTINUATIONS; turn++) {
     const response = await client.beta.messages.create({
       model,
-      max_tokens: 8000,
+      max_tokens: 3000,
       system:
         "You help students find sources for statements in their essays. For each claim, search the web for a " +
         "reliable source a teacher would accept: official statistics, government or NGO reports, reputable news " +
@@ -115,7 +116,7 @@ export async function findWebSources(
           type: "web_search_20250305",
           name: "web_search",
           // One search per claim keeps cost predictable: search results are most of this step's input.
-          max_uses: Math.min(claims.length + 2, 10),
+          max_uses: Math.min(claims.length + 1, 6),
           blocked_domains: ["wikipedia.org"],
         },
         REPORT_TOOL,

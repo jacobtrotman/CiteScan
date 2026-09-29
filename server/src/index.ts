@@ -57,7 +57,7 @@ async function toDocumentInput(body: UploadBody): Promise<DocumentInput> {
   }
 
   if (files.every((f) => IMAGE_TYPES.has(f.mimeType!))) {
-    if (files.length > 20) throw new AnalysisError("Please scan 20 pages or fewer.");
+    if (files.length > 6) throw new AnalysisError("Please scan 6 pages or fewer at a time.");
     return {
       kind: "images",
       images: files.map((f) => ({ mediaType: f.mimeType as any, data: f.data! })),
@@ -109,7 +109,8 @@ app.post("/claims", async (req, res) => {
     if (input.kind === "text" && input.text.trim().length < 50) {
       throw new AnalysisError("That file doesn't contain enough text to analyse.");
     }
-    res.json(await withCostTracking("stage 1 /claims", () => findClaims(input)));
+    const { result, cost } = await withCostTracking("stage 1 /claims", () => findClaims(input));
+    res.json({ ...result, cost });
   } catch (err) {
     sendError(res, err);
   }
@@ -120,12 +121,13 @@ app.post("/sources", async (req, res) => {
   try {
     const body = req.body as SourcesBody;
     const parsed = ClaimsInputSchema.safeParse(body.claims);
-    if (!parsed.success) throw new AnalysisError("Choose at least one sentence to find sources for.");
+    if (!parsed.success) throw new AnalysisError("Choose between 1 and 10 sentences to find sources for.");
     const advanced = body.advanced === true;
-    const claims = await withCostTracking(`stage 2 /sources (${parsed.data.length} sentences, advanced=${advanced})`, () =>
-      findSourcesForClaims(parsed.data, { advanced }),
+    const { result: claims, cost } = await withCostTracking(
+      `stage 2 /sources (${parsed.data.length} sentences, advanced=${advanced})`,
+      () => findSourcesForClaims(parsed.data, { advanced }),
     );
-    res.json({ claims, advanced });
+    res.json({ claims, advanced, cost });
   } catch (err) {
     sendError(res, err);
   }

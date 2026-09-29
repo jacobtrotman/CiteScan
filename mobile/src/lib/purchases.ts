@@ -1,16 +1,35 @@
-// RevenueCat integration: who is Pro, how many essay checks are left, and buying more.
+// RevenueCat integration: who is Pro, what they can still use, and buying more.
 //
-// - "CiteScan Pro" (monthly / yearly subscription) unlocks unlimited checks.
-// - Everyone gets FREE_CHECKS to try the app.
-// - Each "essay_pack" consumable adds PACK_CHECKS more.
+// Every plan is designed to at least break even at full use:
+// - Pro (monthly / yearly) gets a monthly AI-cost allowance below what the plan earns after the
+//   store's cut. The server reports the real cost of each check, which is counted against it, and a
+//   check only starts if its worst-case cost still fits.
+// - Everyone gets FREE_CHECKS to try the app; each "essay_pack" consumable adds PACK_CHECKS more.
+//   A pack earns more than PACK_CHECKS worst-case checks can cost.
 //
-// Purchases come from RevenueCat; the number of checks used is kept on the device.
+// Purchases come from RevenueCat; usage is kept on the device (TODO before launch: server-side).
 import { File, Paths } from 'expo-file-system';
 import Purchases, { type CustomerInfo, type PurchasesPackage } from 'react-native-purchases';
 
 export const FREE_CHECKS = 3;
-/** Fair use: Pro Advanced (web) searches per calendar month. After this, checks use papers only. */
-export const ADVANCED_MONTHLY_LIMIT = 30;
+
+/**
+ * Worst-case API cost (USD) of each part of a check, from the server's hard limits
+ * (25k-token essays, 10 sentences, capped output and web searches). See server/src/analyze.ts.
+ */
+export const WORST_CASE = {
+  /** Reading the essay + finding sources in papers. */
+  check: 0.25,
+  /** Extra for Advanced (web) search on top of that. */
+  advanced: 0.24,
+};
+
+/**
+ * Monthly AI-cost allowance per Pro plan (USD), set below what the plan earns after a 30% store fee:
+ * monthly $3.99 → $2.79; yearly $24.99 → $1.46/month.
+ */
+export const PLAN_ALLOWANCE = { monthly: 2.5, yearly: 1.3 } as const;
+export type ProPlan = keyof typeof PLAN_ALLOWANCE;
 export const PACK_CHECKS = 3;
 export const ESSAY_PACK_ID = 'essay_pack';
 
@@ -22,9 +41,10 @@ export const IS_TEST_STORE = API_KEY?.startsWith('test_') ?? false;
 interface Account {
   userId: string;
   checksUsed: number;
-  /** "YYYY-MM" the advanced count belongs to. */
-  advancedMonth?: string;
-  advancedUsed?: number;
+  /** "YYYY-MM" the Pro usage below belongs to. */
+  usageMonth?: string;
+  /** USD of API cost used this month on the Pro allowance. */
+  usageSpent?: number;
 }
 
 const accountFile = new File(Paths.document, 'account.json');
@@ -62,26 +82,28 @@ function ensureConfigured() {
 
 export interface Access {
   isPro: boolean;
+  plan: ProPlan | null;
+  /** Free + Essay Pack checks remaining. */
   checksLeft: number;
 }
 
 function accessFrom(info: CustomerInfo): Access {
-  const isPro = Object.keys(info.entitlements.active).length > 0;
+  const entitlement = Object.values(info.entitlements.active)[0];
+  const isPro = !!entitlement;
+  const plan: ProPlan | null = entitlement ? (entitlement.productIdentifier.includes('year') ? 'yearly' : 'monthly') : null;
   const packsBought = info.nonSubscriptionTransactions.filter((t) => t.productIdentifier === ESSAY_PACK_ID).length;
   const checksLeft = Math.max(0, FREE_CHECKS + packsBought * PACK_CHECKS - readAccount().checksUsed);
-  return { isPro, checksLeft };
+  return { isPro, plan, checksLeft };
 }
 
 export async function getAccess(): Promise<Access> {
   ensureConfigured();
-  if (!configured) return { isPro: false, checksLeft: Math.max(0, FREE_CHECKS - readAccount().checksUsed) };
+  if (!configured) return { isPro: false, plan: null, checksLeft: Math.max(0, FREE_CHECKS - readAccount().checksUsed) };
   return accessFrom(await Purchases.getCustomerInfo());
 }
 
-/** Call after a successful analysis. Pro users have unlimited checks. */
-export async function recordCheckUsed() {
-  const { isPro } = await getAccess();
-  if (isPro) return;
+/** Uses one free / Essay Pack check. */
+export function recordCheckUsed() {
   const account = readAccount();
   writeAccount({ ...account, checksUsed: account.checksUsed + 1 });
 }
@@ -158,16 +180,48 @@ export async function resetTestAccount() {
 
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 
-/** How many Advanced searches a Pro user has left this month. */
-export function getAdvancedLeft(): number {
-  const account = readAccount();
-  const used = account.advancedMonth === thisMonth() ? (account.advancedUsed ?? 0) : 0;
-  return Math.max(0, ADVANCED_MONTHLY_LIMIT - used);
+export interface ProUsage {
+  spent: number;
+  allowance: number;
+  remaining: number;
+  /** First day of next month, when the allowance resets. */
+  resetsOn: Date;
 }
 
-export function recordAdvancedUsed() {
+export function getProUsage(plan: ProPlan): ProUsage {
+  const account = readAccount();
+  const spent = account.usageMonth === thisMonth() ? (account.usageSpent ?? 0) : 0;
+  const allowance = PLAN_ALLOWANCE[plan];
+  const now = new Date();
+  return {
+    spent,
+    allowance,
+    remaining: Math.max(0, allowance - spent),
+    resetsOn: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+  };
+}
+
+/** Counts a check's real API cost (reported by the server) against the Pro allowance. */
+export function recordSpend(cost: number) {
   const account = readAccount();
   const month = thisMonth();
-  const used = account.advancedMonth === month ? (account.advancedUsed ?? 0) : 0;
-  writeAccount({ ...account, advancedMonth: month, advancedUsed: used + 1 });
+  const spent = account.usageMonth === month ? (account.usageSpent ?? 0) : 0;
+  writeAccount({ ...account, usageMonth: month, usageSpent: spent + Math.max(0, cost) });
+}
+
+/**
+ * How a new check is paid for: from the Pro allowance (only if its worst case still fits),
+ * otherwise from a free / Essay Pack check, otherwise it can't start.
+ */
+export type CheckMode = 'pro' | 'credit' | 'none';
+
+export function decideCheckMode(access: Access): CheckMode {
+  if (access.isPro && access.plan && getProUsage(access.plan).remaining >= WORST_CASE.check) return 'pro';
+  if (access.checksLeft > 0) return 'credit';
+  return 'none';
+}
+
+/** Whether a Pro check can afford Advanced search in the worst case. */
+export function canAffordAdvanced(plan: ProPlan): boolean {
+  return getProUsage(plan).remaining >= WORST_CASE.advanced;
 }

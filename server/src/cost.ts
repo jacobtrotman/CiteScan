@@ -18,11 +18,16 @@ interface Tally {
 
 const current = new AsyncLocalStorage<Tally>();
 
-/** Run `fn`, then log the total cost of every Claude call made inside it. */
-export async function withCostTracking<T>(label: string, fn: () => Promise<T>): Promise<T> {
+/**
+ * Run `fn`, then log the total cost of every Claude call made inside it. The cost is returned
+ * too, so the app can count it against a Pro user's monthly allowance.
+ */
+export async function withCostTracking<T>(label: string, fn: () => Promise<T>): Promise<{ result: T; cost: number }> {
   const tally: Tally = { label, total: 0, lines: [] };
   try {
-    return await current.run(tally, fn);
+    const result = await current.run(tally, fn);
+    // Rounded up, so allowances are never undercounted.
+    return { result, cost: Math.ceil(tally.total * 10000) / 10000 };
   } finally {
     console.log(`[cost] ${label}: $${tally.total.toFixed(4)}\n${tally.lines.map((l) => `  ${l}`).join("\n")}`);
   }

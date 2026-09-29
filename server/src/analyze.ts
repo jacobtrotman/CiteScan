@@ -12,6 +12,12 @@ const client = new Anthropic();
 const MODEL = "claude-opus-5-5";
 const SOURCE_MODEL = "claude-haiku-4-5";
 const MAX_CLAIMS = 15;
+
+// Hard limits that bound the worst-case cost of a check (see WORST_CASE in the app's purchases.ts):
+/** Essay size read in stage 1: about 7 photo pages at 1400px, or ~10 typed pages. */
+export const MAX_INPUT_TOKENS = 25_000;
+/** Sentences that can be sent for sources in one check. */
+export const MAX_SOURCE_CLAIMS = 10;
 const SEARCH_CONCURRENCY = 3;
 
 // Server-side refusal fallbacks: if a safety classifier declines, the API retries on a
@@ -88,25 +94,35 @@ function documentBlocks(input: DocumentInput): Anthropic.Beta.BetaContentBlockPa
 }
 
 async function extractClaims(input: DocumentInput) {
-  const response = await client.beta.messages.parse({
-    model: MODEL,
-    max_tokens: 16000,
-    ...FALLBACK_OPTIONS,
-    output_config: { effort: "medium", format: betaZodOutputFormat(ClaimsSchema) },
-    system:
+  const system =
       "You help students cite their essays properly. You read an essay (which may be a photo or scan of " +
       "printed or handwritten pages) and find the statements that need a citation: statistics, specific " +
       "facts that aren't common knowledge, direct or paraphrased quotations, research findings, historical " +
       "specifics, and ideas attributable to a particular thinker. Skip common knowledge, the author's own " +
       "arguments and opinions, and sentences that already carry a citation. Quote the essay exactly. " +
       `Return at most ${MAX_CLAIMS} claims, prioritising the ones most in need of a source. ` +
-      "If the document is not an essay or contains no such statements, return an empty claims list.",
-    messages: [
-      {
-        role: "user",
-        content: [...documentBlocks(input), { type: "text", text: "Find the statements in this essay that need citations." }],
-      },
-    ],
+      "If the document is not an essay or contains no such statements, return an empty claims list.";
+  const messages: Anthropic.Beta.BetaMessageParam[] = [
+    {
+      role: "user",
+      content: [...documentBlocks(input), { type: "text", text: "Find the statements in this essay that need citations." }],
+    },
+  ];
+
+  // Counting tokens is free: reject oversized documents before spending anything on them.
+  const { input_tokens } = await client.beta.messages.countTokens({ model: MODEL, system, messages });
+  if (input_tokens > MAX_INPUT_TOKENS) {
+    throw new AnalysisError("That essay is too long to check in one go. Try up to about 7 photos or 10 typed pages at a time.");
+  }
+
+  const response = await client.beta.messages.parse({
+    model: MODEL,
+    // Room for up to 15 claims plus brief reasoning; also caps the worst-case output cost.
+    max_tokens: 5000,
+    ...FALLBACK_OPTIONS,
+    output_config: { effort: "medium", format: betaZodOutputFormat(ClaimsSchema) },
+    system,
+    messages,
   });
 
   recordUsage("find sentences", MODEL, response.usage);
@@ -134,7 +150,7 @@ async function matchSources(
 
   const response = await client.beta.messages.parse({
     model: SOURCE_MODEL,
-    max_tokens: 8000,
+    max_tokens: 3000,
     output_config: { format: betaZodOutputFormat(MatchSchema) },
     system:
       "For each essay claim you are given candidate sources from scholarly search engines. Pick up to 3 " +
@@ -169,7 +185,7 @@ export const ClaimsInputSchema = z
     }),
   )
   .min(1)
-  .max(MAX_CLAIMS);
+  .max(MAX_SOURCE_CLAIMS);
 
 export interface SourceOptions {
   /** Pro "advanced search": also search the web for claims without a strong scholarly match. */

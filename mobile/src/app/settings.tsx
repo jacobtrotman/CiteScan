@@ -8,7 +8,7 @@ import { LogoMark } from '@/components/LogoMark';
 import { APP_ICONS, canChangeAppIcon } from '@/lib/app-icon';
 import { useAppState, type ModePreference } from '@/lib/app-state';
 import { ACCENTS, BACKGROUNDS, DEFAULT_ICON } from '@/lib/palette';
-import { getAccountDetails, IS_TEST_STORE, resetTestAccount, restore, type AccountDetails } from '@/lib/purchases';
+import { getAccountDetails, getProUsage, IS_TEST_STORE, resetTestAccount, restore, type AccountDetails } from '@/lib/purchases';
 import { useTheme, type Theme } from '@/lib/theme';
 
 const MODES: { id: ModePreference; label: string }[] = [
@@ -95,7 +95,7 @@ export default function SettingsScreen() {
                   : isPro
                     ? periodEnds
                       ? `${account.willRenew ? 'Renews' : 'Ends'} on ${periodEnds}`
-                      : 'Unlimited essay checks'
+                      : 'CiteScan Pro is active'
                     : `${account.checksLeft} essay check${account.checksLeft === 1 ? '' : 's'} left`}
               </Text>
             </View>
@@ -105,6 +105,8 @@ export default function SettingsScreen() {
               </View>
             ) : null}
           </View>
+
+          {isPro && account?.plan && <AllowanceMeter plan={account.plan} checksLeft={account.checksLeft} theme={theme} />}
 
           {isPro ? (
             <Row icon="card-outline" label="Manage subscription" onPress={onManage} theme={theme} />
@@ -266,6 +268,29 @@ export default function SettingsScreen() {
   );
 }
 
+/** How much of this month's Pro allowance is left. */
+function AllowanceMeter({ plan, checksLeft, theme }: { plan: 'monthly' | 'yearly'; checksLeft: number; theme: Theme }) {
+  const styles = makeStyles(theme);
+  const usage = getProUsage(plan);
+  const leftPct = Math.round((usage.remaining / usage.allowance) * 100);
+  const resets = usage.resetsOn.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={styles.meterRow}>
+        <Text style={styles.meterLabel}>This month’s allowance</Text>
+        <Text style={styles.meterValue}>{leftPct}% left</Text>
+      </View>
+      <View style={styles.meterTrack}>
+        <View style={[styles.meterFill, { width: `${leftPct}%` }]} />
+      </View>
+      <Text style={styles.note}>
+        Resets on {resets}. Advanced checks use more than papers-only checks.
+        {checksLeft > 0 ? ` Plus ${checksLeft} Essay Pack check${checksLeft === 1 ? '' : 's'} for when it runs out.` : ''}
+      </Text>
+    </View>
+  );
+}
+
 function Section(props: { title: string; pro?: boolean; theme: Theme; children: ReactNode }) {
   const styles = makeStyles(props.theme);
   return (
@@ -355,6 +380,11 @@ const makeStyles = (t: Theme) =>
       borderColor: t.border,
     },
     note: { fontSize: 12, color: t.muted, lineHeight: 17 },
+    meterRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    meterLabel: { fontSize: 14, fontWeight: '600', color: t.text },
+    meterValue: { fontSize: 14, fontWeight: '700', color: t.accent },
+    meterTrack: { height: 8, borderRadius: 4, backgroundColor: t.border, overflow: 'hidden' },
+    meterFill: { height: 8, borderRadius: 4, backgroundColor: t.primary },
     iconFooter: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     link: { color: t.accent, fontWeight: '700', fontSize: 13 },
     devReset: { fontSize: 13, color: t.danger, textAlign: 'center', paddingVertical: 8 },

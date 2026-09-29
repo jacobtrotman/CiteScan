@@ -28,10 +28,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 /** Stage 1: read the essay and list the sentences that may need a citation. */
 export function findClaims(files: UploadFile[]) {
-  return post<{ title: string; claims: DraftClaim[] }>('/claims', { files });
+  return post<{ title: string; claims: DraftClaim[]; cost: number }>('/claims', { files });
 }
 
 /** Stage 2: find sources for the sentences the user kept. `advanced` (Pro) adds web sources. */
 export function findSources(claims: DraftClaim[], options: { advanced: boolean }) {
-  return post<{ claims: Claim[]; advanced: boolean }>('/sources', { claims, advanced: options.advanced });
+  return post<{ claims: Claim[]; advanced: boolean; cost: number }>('/sources', { claims, advanced: options.advanced });
 }

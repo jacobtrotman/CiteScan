@@ -15,10 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LogoMark } from '@/components/LogoMark';
 import { ProgressView } from '@/components/ProgressView';
 import { findClaims } from '@/lib/api';
-import { pickDocument, pickPagePhotos, scanPage, type Page } from '@/lib/pickers';
+import { MAX_PAGES, pickDocument, pickPagePhotos, scanPage, type Page } from '@/lib/pickers';
 import { useAppState } from '@/lib/app-state';
 import { setPendingCheck } from '@/lib/pending';
-import { getAccess } from '@/lib/purchases';
+import { decideCheckMode, getAccess, getProUsage, recordCheckUsed, recordSpend } from '@/lib/purchases';
 import { listAnalyses, newId, saveAnalysis } from '@/lib/storage';
 import { useTheme, type Theme } from '@/lib/theme';
 import type { UploadFile } from '@/lib/types';
@@ -66,8 +66,15 @@ export default function HomeScreen() {
     }
   };
 
+  const tooManyPages = () => {
+    if (pages.length < MAX_PAGES) return false;
+    Alert.alert(`Up to ${MAX_PAGES} pages`, `One check can read up to ${MAX_PAGES} pages. Check longer essays in parts.`);
+    return true;
+  };
+
   const onScan = () =>
     run(async () => {
+      if (tooManyPages()) return;
       const page = await scanPage(pages.length + 1);
       if (page) {
         setDocument(null);
@@ -77,6 +84,7 @@ export default function HomeScreen() {
 
   const onPickPhotos = () =>
     run(async () => {
+      if (tooManyPages()) return;
       const picked = await pickPagePhotos(pages.length);
       if (picked.length) {
         setDocument(null);
@@ -100,10 +108,23 @@ export default function HomeScreen() {
 
   const onAnalyze = () =>
     run(async () => {
-      // If the purchase check itself fails (e.g. offline), let the scan through rather than block the user.
       const current = await getAccess().catch(() => null);
-      if (current && !current.isPro && current.checksLeft <= 0) {
-        openPaywall('out');
+      if (!current) throw new Error("Couldn't check your plan. Check your internet connection and try again.");
+      const mode = decideCheckMode(current);
+      if (mode === 'none') {
+        if (current.isPro && current.plan) {
+          const resets = getProUsage(current.plan).resetsOn.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+          Alert.alert(
+            'Monthly allowance used',
+            `You've used this month's Pro allowance. It resets on ${resets}. An Essay Pack gives you 3 more checks now.`,
+            [
+              { text: 'Not now', style: 'cancel' },
+              { text: 'Get an Essay Pack', onPress: () => openPaywall('out') },
+            ],
+          );
+        } else {
+          openPaywall('out');
+        }
         return;
       }
       const files: UploadFile[] = document ? [document] : pages.map(({ name, mimeType, data }) => ({ name, mimeType, data }));
@@ -111,16 +132,19 @@ export default function HomeScreen() {
       const sourceKind = document ? 'file' : 'scan';
       setBusy(true);
       try {
-        // Stage 1 only: find the sentences. Sources are searched after the user reviews them,
-        // and an essay check is only used at that point.
-        const { title, claims } = await findClaims(files);
+        // Stage 1 only: find the sentences. Sources are searched after the user reviews them.
+        const { title, claims, cost } = await findClaims(files);
+        // Reading the essay is paid for now: from the Pro allowance (real cost) or one check.
+        if (mode === 'pro') recordSpend(cost);
+        else recordCheckUsed();
+        refreshAccess();
         clear();
         if (claims.length === 0) {
           const id = newId();
           saveAnalysis({ title, claims: [], id, createdAt: new Date().toISOString(), fileName, sourceKind });
           router.push({ pathname: '/result/[id]', params: { id } });
         } else {
-          setPendingCheck({ title, claims, fileName, sourceKind });
+          setPendingCheck({ title, claims, fileName, sourceKind, mode });
           router.push('/review');
         }
       } finally {

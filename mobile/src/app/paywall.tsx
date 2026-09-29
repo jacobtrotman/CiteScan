@@ -55,7 +55,7 @@ export default function PaywallScreen() {
       await refreshAccess();
       Alert.alert(
         access.isPro && !isPack ? 'Welcome to CiteScan Pro!' : 'Essay Pack added',
-        access.isPro && !isPack ? 'You now have unlimited essay checks.' : `You have ${access.checksLeft} essay checks left.`,
+        access.isPro && !isPack ? 'Your monthly Pro allowance and all Pro features are unlocked.' : `You have ${access.checksLeft} essay checks left.`,
         [{ text: 'OK', onPress: () => router.back() }],
       );
     } catch (err) {
@@ -95,7 +95,7 @@ export default function PaywallScreen() {
           </Text>
           <Text style={styles.subtitle}>
             {reason === 'out'
-              ? "You've used all your free essay checks. Go Pro for unlimited checks, or grab a few more."
+              ? "You've used all your essay checks. Go Pro for a monthly allowance, or grab a few more."
               : reason === 'advanced'
                 ? 'Advanced search looks beyond academic papers to find the news article, report or statistic behind your claim.'
                 : reason === 'history'
@@ -176,8 +176,10 @@ function PlanCard(props: {
   let name = product.title;
   let detail = product.priceString;
   let badge: string | null = null;
+  let allowance: string | null = null;
 
   if (pkg.packageType === PACKAGE_TYPE.ANNUAL) {
+    allowance = 'About 13 essays a month with Advanced search';
     name = 'Yearly';
     detail = `${product.priceString} / year`;
     if (product.pricePerMonthString) detail += ` · ${product.pricePerMonthString}/mo`;
@@ -188,6 +190,7 @@ function PlanCard(props: {
   } else if (pkg.packageType === PACKAGE_TYPE.MONTHLY) {
     name = 'Monthly';
     detail = `${product.priceString} / month`;
+    allowance = 'About 25 essays a month with Advanced search';
   } else if (product.identifier === ESSAY_PACK_ID) {
     name = 'Essay Pack';
     detail = `${product.priceString} · ${PACK_CHECKS} more checks, one-off`;
@@ -203,6 +206,7 @@ function PlanCard(props: {
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={styles.planName}>{name}</Text>
         <Text style={styles.planDetail}>{detail}</Text>
+        {allowance && <Text style={styles.planAllowance}>{allowance}</Text>}
       </View>
       {badge && (
         <View style={styles.badge}>
@@ -255,6 +259,7 @@ const makeStyles = (t: Theme) =>
     planSelected: { borderColor: t.accent, backgroundColor: t.primarySoft },
     planName: { fontSize: 17, fontWeight: '700', color: t.text },
     planDetail: { fontSize: 14, color: t.muted },
+    planAllowance: { fontSize: 12, color: t.accent, fontWeight: '600' },
     badge: { backgroundColor: t.primary, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
     badgeText: { color: t.primaryText, fontSize: 12, fontWeight: '700' },
     cta: { backgroundColor: t.primary, borderRadius: 16, paddingVertical: 17, alignItems: 'center' },

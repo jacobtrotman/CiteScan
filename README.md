@@ -17,8 +17,8 @@ Existing citation tools expect your essay to be typed on a computer already. Cit
 | Scan printed/handwritten pages, or upload PDF / Word / text | ✅ | ✅ |
 | Flag sentences that need citing, with reasons | ✅ | ✅ |
 | Academic paper suggestions with APA & MLA citations | ✅ | ✅ |
-| Essay checks | 3 free, plus Essay Packs | Unlimited |
-| **Advanced search**: news, reports and official statistics | | ✅ (30 essays/month) |
+| Essay checks | 3 free, plus Essay Packs | Monthly allowance: ~25 essays with Advanced search (monthly), ~13 (yearly), far more papers-only |
+| **Advanced search**: news, reports and official statistics | | ✅ |
 | **Full history**: open and search essays older than 7 days | | ✅ |
 | **Waiting game** instead of the ad space while sources load | | ✅ |
 | **Custom themes**: 9 accent colours × 6 backgrounds, light and dark | | ✅ |
@@ -30,7 +30,7 @@ Plus: light/dark/system appearance, searchable and renamable history, and expand
 
 Everything purchase-related runs through the **RevenueCat SDK** (`react-native-purchases`):
 
-- **Entitlement:** `CiteScan Pro`, unlocked by two subscriptions in one offering: **Pro monthly ($3.99)** and **Pro yearly ($24.99, 48% cheaper)**.
+- **Entitlement:** `CiteScan Pro`, unlocked by two subscriptions in one offering (the plan is read from the active entitlement's product to set its allowance): **Pro monthly ($3.99)** and **Pro yearly ($24.99, 48% cheaper)**.
 - **Consumable:** **Essay Pack ($1.99, 3 more checks)** for students who only need one essay done before a deadline. It isn't attached to the entitlement, and credits are counted from `nonSubscriptionTransactions`.
 - **Custom paywall** (`mobile/src/app/paywall.tsx`) built from the current offering, so prices and plans can change from the RevenueCat dashboard without an app update. The "Save 48%" badge is calculated from real prices, and prices show in the user's local currency via the stores.
 - **Contextual upgrade prompts** rather than nagging: when free checks run out, on a result where Advanced search could find a stronger source, on a locked older essay, and on Pro-only settings.
@@ -66,7 +66,7 @@ Development uses RevenueCat's **Test Store**, which simulates purchases in Expo 
 - **Resilient search.** The free scholarly indexes often rate-limit, so searches are batched and retried with backoff. In testing this took an essay from 2/4 to 4/4 sentences with sources, and web search covers statistics that academic databases don't index.
 - **Two stages so the user stays in control and costs stay down.** Finding sentences is quick and cheap; searching and matching sources is where most of the cost is. Users untick sentences they've already cited before stage 2, and an essay check is only used when they confirm.
 - **The right model for each job, measured.** Reading the essay (including handwriting) uses Claude Opus 5.5. Judging candidate sources and web searching use Claude Haiku 4.5, and APA/MLA citations are built in code rather than written by the model. Every request logs its cost per stage (`server/src/cost.ts`). Together these cut a Pro check with web search from **$0.46 to about $0.10**, and a free check to **about $0.02**, with every test sentence still getting a strong source.
-- **Pricing that covers costs.** Pro is $3.99/month, and Advanced (web) search has a fair-use limit of 30 essays a month; after that, checks carry on with academic papers only. So even heavy users stay profitable.
+- **Every paid plan breaks even at full use.** Hard per-check limits (a 25k-token essay cap checked with free token counting before any work, 6 photo pages, 10 sentences, capped output and searches) bound a check's worst case: ≤ $0.25 papers-only, ≤ $0.45 with Advanced search. Pro plans get a monthly AI-cost allowance set below what they earn after a (conservative) 30% store fee: $2.50 for monthly ($3.99 → $2.79) and $1.30 for yearly ($24.99 → $1.46/month). The server returns the real cost of each check, which counts against the allowance, and a check only starts, or uses Advanced search, if its worst case still fits. An Essay Pack ($1.99 → $1.39) covers 3 checks, worst case $0.75.
 
 ## Tech stack
 

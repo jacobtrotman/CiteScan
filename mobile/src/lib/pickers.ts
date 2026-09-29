@@ -4,9 +4,11 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import type { UploadFile } from './types';
 
-// Pages are downscaled before upload: 1600px wide keeps text legible while
-// keeping each page well under the API's per-image size limit.
-const PAGE_WIDTH = 1600;
+// Pages are downscaled before upload: 1400px wide keeps handwriting legible and costs
+// ~3,400 tokens per page to read (1600px costs ~4,500).
+const PAGE_WIDTH = 1400;
+/** Most photo pages in one check (the server rejects more). */
+export const MAX_PAGES = 6;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 export interface Page extends UploadFile {
@@ -43,7 +45,7 @@ export async function pickPagePhotos(existingCount: number): Promise<Page[]> {
     mediaTypes: ['images'],
     allowsMultipleSelection: true,
     orderedSelection: true,
-    selectionLimit: Math.max(1, 20 - existingCount),
+    selectionLimit: Math.max(1, MAX_PAGES - existingCount),
     quality: 0.9,
   });
   if (result.canceled) return [];
